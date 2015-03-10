@@ -50,13 +50,13 @@ public class sqsAlertReceive {
     public static void main(String[] args) throws Exception {
 
         /*
-         * The ProfileCredentialsProvider will return your [awsReilly]
+         * The ProfileCredentialsProvider will return your [jreilly]
          * credential profile by reading from the credentials file located at
          * (/Users/johnreilly/.aws/credentials).
          */
         AWSCredentials credentials = null;
         try {
-            credentials = new ProfileCredentialsProvider("awsReilly").getCredentials();
+            credentials = new ProfileCredentialsProvider("jreilly").getCredentials();
         } catch (Exception e) {
             throw new AmazonClientException(
                     "Cannot load the credentials from the credential profiles file. " +
@@ -89,6 +89,9 @@ public class sqsAlertReceive {
                 System.out.println("QueueUrl: " + queueUrl);
             }
             System.out.println();
+            
+            int x = 1;
+            while (x > 0) {
 
             // Receive messages
             System.out.println("Receiving messages from " + thisQueue + ".");
@@ -97,8 +100,7 @@ public class sqsAlertReceive {
             System.out.println("Message count for " + thisQueue + ": " + 
                 messages.size() + "\n");
 
-            int x = 1;
-            while (x > 0) {
+
 	            for (Message message : messages) {
 	            	
 	                System.out.println("  Message");
@@ -116,7 +118,7 @@ public class sqsAlertReceive {
 	              // call a function to transform message
 	              // then send message to database persist queue
 	
-		          System.out.println("Sending messages to next queue.\n");
+		          System.out.println("Sending message to next queue.");
 		          sqs.sendMessage(new SendMessageRequest(nextQueue, message.getBody()));
 		          
 		          // delete message after sending to persist queue
@@ -125,7 +127,7 @@ public class sqsAlertReceive {
 		          sqs.deleteMessage(new DeleteMessageRequest(thisQueue, messageRecieptHandle));
 		          
 	            }
-	            Thread.sleep(60000); // do nothing for 1000 miliseconds (1 second)
+	            Thread.sleep(20000); // do nothing for 1000 miliseconds (1 second)
             }
 
         } catch (AmazonServiceException ase) {
