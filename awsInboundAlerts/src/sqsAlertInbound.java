@@ -12,11 +12,10 @@
  * express or implied. See the License for the specific language governing
  * permissions and limitations under the License.
  */
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Random;
+
+import org.apache.commons.codec.binary.Base64;
 
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.AmazonServiceException;
@@ -25,28 +24,14 @@ import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.amazonaws.regions.Region;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
-import com.amazonaws.services.dynamodbv2.model.AttributeDefinition;
-import com.amazonaws.services.dynamodbv2.model.AttributeValue;
-import com.amazonaws.services.dynamodbv2.model.CreateTableRequest;
-import com.amazonaws.services.dynamodbv2.model.KeySchemaElement;
-import com.amazonaws.services.dynamodbv2.model.KeyType;
-import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughput;
-import com.amazonaws.services.dynamodbv2.model.PutItemRequest;
-import com.amazonaws.services.dynamodbv2.model.PutItemResult;
-import com.amazonaws.services.dynamodbv2.model.ScalarAttributeType;
-import com.amazonaws.services.dynamodbv2.model.TableDescription;
-import com.amazonaws.services.dynamodbv2.util.Tables;
 import com.amazonaws.services.sqs.AmazonSQS;
 import com.amazonaws.services.sqs.AmazonSQSClient;
+import com.amazonaws.services.sqs.model.CreateQueueRequest;
 import com.amazonaws.services.sqs.model.DeleteMessageRequest;
+import com.amazonaws.services.sqs.model.DeleteQueueRequest;
 import com.amazonaws.services.sqs.model.Message;
 import com.amazonaws.services.sqs.model.ReceiveMessageRequest;
 import com.amazonaws.services.sqs.model.SendMessageRequest;
-
-import java.io.IOException;
-import java.net.InetSocketAddress;
-
-import net.spy.memcached.MemcachedClient; 
 
 /**
  * This sample demonstrates how to make basic requests to Amazon SQS using the
@@ -63,9 +48,7 @@ import net.spy.memcached.MemcachedClient;
  * <b>WARNING:</b> To avoid accidental leakage of your credentials, DO NOT keep
  * the credentials file in your source directory.
  */
-public class sqsAlertCache {
-
-	static AmazonDynamoDBClient dynamoDB;
+public class sqsAlertInbound {
 
 	public static void main(String[] args) throws Exception {
 
@@ -77,8 +60,8 @@ public class sqsAlertCache {
 		AmazonSQS sqs = whgHelper.setQueueAccess(credentials);
 
 		// define queue that messages will be retrieved from
-		String thisQueue = "alertCache";
-		String nextQueue = "alertStream";
+		String thisQueue = "alertInbound";
+		String nextQueue = "alertPersist";
 
 		while (1 > 0) {
 
@@ -94,32 +77,35 @@ public class sqsAlertCache {
 					System.out.println("    MessageId:     " + message.getMessageId());
 					System.out.println("    ReceiptHandle: " + message.getReceiptHandle());
 					System.out.println("    MD5OfBody:     " + message.getMD5OfBody());
-					System.out.println("    Body:          " + message.getBody());
+					System.out.println("    Body:          " + message.getBody() + " \n");
+
 					for (Entry<String, String> entry : message.getAttributes().entrySet()) {
 						System.out.println("  Attribute");
 						System.out.println("    Name:  " + entry.getKey());
 						System.out.println("    Value: " + entry.getValue());
 					}
-					System.out.println();
 
-					String configEndpoint = "alertsbrdregrol-001.tiluxk.0001.use1.cache.amazonaws.com";
-					Integer clusterPort = 6379;
+					// validate JSON for completeness and form and handle errors
+//					if (sqs == null) {
+//						sqs.sendMessage(new SendMessageRequest("alertErrorHandling", message.getBody()));
+//					}
 
-					MemcachedClient client = new MemcachedClient(new InetSocketAddress(configEndpoint, clusterPort));
-					// The client will connect to the other cache nodes automatically
-					// Store a data item for an hour. The client will decide which cache
-					client.set(message.getMessageId(), 360000, message.getBody());
+					// call a function to transform message
+					String  alertJSON  = String.valueOf(Base64.decodeBase64(message.getBody()));
+					System.out.println("Transformed JSON: " + alertJSON);
 
-					// then send message to cache queue
-					System.out.println("Sending messages to next queue.");
-					sqs.sendMessage(new SendMessageRequest(nextQueue, message.getBody()));
+					// send message to next queue
+					System.out.println("Sending message to next queue.");
+					sqs.sendMessage(new SendMessageRequest(nextQueue, alertJSON));
 
-					// delete message after sending to persist queue
-					System.out.println("Deleting message from this queue.\n");
+					// delete message from this queue
+					System.out.println("Deleting message.\n");
 					String messageRecieptHandle = message.getReceiptHandle();
 					sqs.deleteMessage(new DeleteMessageRequest(thisQueue, messageRecieptHandle));
+
 				}
 				Thread.sleep(20000); // do nothing for 1000 miliseconds (1 second)
+
 			} catch (AmazonServiceException ase) {
 				System.out.println("Caught an AmazonServiceException, which means your request made it " +
 						"to Amazon SQS, but was rejected with an error response for some reason.");
@@ -127,7 +113,7 @@ public class sqsAlertCache {
 				System.out.println("HTTP Status Code: " + ase.getStatusCode());
 				System.out.println("AWS Error Code:   " + ase.getErrorCode());
 				System.out.println("Error Type:       " + ase.getErrorType());
-				System.out.println("Request ID:       " + ase.getRequestId());
+				System.out.println("Request ID:       " + ase.getRequestId());			
 			} catch (AmazonClientException ace) {
 				System.out.println("Caught an AmazonClientException, which means the client encountered " +
 						"a serious internal problem while trying to communicate with SQS, such as not " +
@@ -137,5 +123,3 @@ public class sqsAlertCache {
 		}
 	}
 }
-
-

@@ -77,157 +77,72 @@ import net.spy.memcached.MemcachedClient;
  */
 public class sqsAlertStream {
 
-    private static AmazonKinesisClient kinesis;
-	
-    private static void init() throws Exception {
-        /*
-         * The ProfileCredentialsProvider will return your [awsReilly]
-         * credential profile by reading from the credentials file located at
-         * (/Users/johnreilly/.aws/credentials).
-         */
-        AWSCredentials credentials = null;
-        try {
-            credentials = new ProfileCredentialsProvider("jreilly").getCredentials();
-        } catch (Exception e) {
-            throw new AmazonClientException(
-                    "Cannot load the credentials from the credential profiles file. " +
-                    "Please make sure that your credentials file is at the correct " +
-                    "location (/Users/johnreilly/.aws/credentials), and is in valid format.",
-                    e);
-        }
-
-        kinesis = new AmazonKinesisClient(credentials);
-
-    }
+	private static AmazonKinesisClient kinesis;
 
 	public static void main(String[] args) throws Exception {
 
-        init();
-		
-        final String myStreamName = "alertsStream";
-        final Integer myStreamSize = 1;
 
+		// get credentials
+		String user = "jreilly";
+		AWSCredentials credentials = whgHelper.getCred(user);
 
-		/*
-		 * The ProfileCredentialsProvider will return your [awsReilly]
-		 * credential profile by reading from the credentials file located at
-		 * (/Users/johnreilly/.aws/credentials).
-		 */
-		AWSCredentials credentials = null;
-		try {
-			credentials = new ProfileCredentialsProvider("jreilly").getCredentials();
-		} catch (Exception e) {
-			throw new AmazonClientException(
-					"Cannot load the credentials from the credential profiles file. " +
-							"Please make sure that your credentials file is at the correct " +
-							"location (/Users/johnreilly/.aws/credentials), and is in valid format.",
-							e);
-		}
+		// use credentials to set access to SQS
+		AmazonSQS sqs = whgHelper.setQueueAccess(credentials);
 
-		 // Describe the stream and check if it exists.
-        DescribeStreamRequest describeStreamRequest = new DescribeStreamRequest().withStreamName(myStreamName);
-        try {
-            StreamDescription streamDescription = kinesis.describeStream(describeStreamRequest).getStreamDescription();
-            System.out.printf("Stream %s has a status of %s.\n", myStreamName, streamDescription.getStreamStatus());
+		// define queue that messages will be retrieved from
+		String thisQueue = "alertPersist";
+		String nextQueue = "alertCache";
 
-            if ("DELETING".equals(streamDescription.getStreamStatus())) {
-                System.out.println("Stream is being deleted. This sample will now exit.");
-                System.exit(0);
-            }
+		// set access to stream instance
+		kinesis = new AmazonKinesisClient(credentials);
 
-            // Wait for the stream to become active if it is not yet ACTIVE.
-            if (!"ACTIVE".equals(streamDescription.getStreamStatus())) {
-                waitForStreamToBecomeAvailable(myStreamName);
-            }
-        } catch (ResourceNotFoundException ex) {
-            System.out.printf("Stream %s does not exist. Creating it now.\n", myStreamName);
+		// pull list of current messages (up to 10) in the queue
+		List<Message> messages = whgHelper.getMessagesFromQueue(thisQueue, sqs);
 
-            // Create a stream. The number of shards determines the provisioned throughput.
-            CreateStreamRequest createStreamRequest = new CreateStreamRequest();
-            createStreamRequest.setStreamName(myStreamName);
-            createStreamRequest.setShardCount(myStreamSize);
-            kinesis.createStream(createStreamRequest);
-            // The stream is now being created. Wait for it to become active.
-            waitForStreamToBecomeAvailable(myStreamName);
-        }
-        
-        // List all of my streams.
-        ListStreamsRequest listStreamsRequest = new ListStreamsRequest();
-        listStreamsRequest.setLimit(10);
-        ListStreamsResult listStreamsResult = kinesis.listStreams(listStreamsRequest);
-        List<String> streamNames = listStreamsResult.getStreamNames();
-        while (listStreamsResult.isHasMoreStreams()) {
-            if (streamNames.size() > 0) {
-                listStreamsRequest.setExclusiveStartStreamName(streamNames.get(streamNames.size() - 1));
-            }
-
-            listStreamsResult = kinesis.listStreams(listStreamsRequest);
-            streamNames.addAll(listStreamsResult.getStreamNames());
-        }
-        // Print all of my streams.
-        System.out.println("List of my streams: ");
-        for (int i = 0; i < streamNames.size(); i++) {
-            System.out.println("\t- " + streamNames.get(i));
-        }
-
-        
-		AmazonSQS sqs = new AmazonSQSClient(credentials);
-		Region usEast1 = Region.getRegion(Regions.US_EAST_1);
-		sqs.setRegion(usEast1);
-
-		System.out.println("");
-		System.out.println("===========================================");
-		System.out.println("Getting Started with sqsAlertCache");
-		System.out.println("===========================================\n");
+		final String streamName = "alertsStream";
+		final Integer streamSize = 1;
 
 		try {
-			
-			String thisQueue = "alertCache";
-			String nextQueue = "alertReceive";
 
-			// Receive messages
-			System.out.println("Receiving messages from " + thisQueue + ".");
-			ReceiveMessageRequest receiveMessageRequest = new ReceiveMessageRequest(thisQueue);
-			List<Message> messages = sqs.receiveMessage(receiveMessageRequest).getMessages();
-			System.out.println("Message count for " + thisQueue + ": " + 
-					messages.size() + "\n");
+			int x = 1;
+			while (x > 0) {
 
-			for (Message message : messages) {
+				for (Message message : messages) {
 
-				System.out.println("  Message");
-				System.out.println("    MessageId:     " + message.getMessageId());
-				System.out.println("    ReceiptHandle: " + message.getReceiptHandle());
-				System.out.println("    MD5OfBody:     " + message.getMD5OfBody());
-				System.out.println("    Body:          " + message.getBody());
-				for (Entry<String, String> entry : message.getAttributes().entrySet()) {
-					System.out.println("  Attribute");
-					System.out.println("    Name:  " + entry.getKey());
-					System.out.println("    Value: " + entry.getValue());
+					System.out.println("  Message");
+					System.out.println("    MessageId:     " + message.getMessageId());
+					System.out.println("    ReceiptHandle: " + message.getReceiptHandle());
+					System.out.println("    MD5OfBody:     " + message.getMD5OfBody());
+					System.out.println("    Body:          " + message.getBody());
+					for (Entry<String, String> entry : message.getAttributes().entrySet()) {
+						System.out.println("  Attribute");
+						System.out.println("    Name:  " + entry.getKey());
+						System.out.println("    Value: " + entry.getValue());
+					}
+					System.out.println();
+
+					// Write record to the stream
+					long createTime = System.currentTimeMillis();
+					PutRecordRequest putRecordRequest = new PutRecordRequest();
+					putRecordRequest.setStreamName(streamName);
+					putRecordRequest.setData(ByteBuffer.wrap(String.format(message.getBody(), createTime).getBytes()));
+					putRecordRequest.setPartitionKey(String.format("partitionKey-%d", createTime));
+					PutRecordResult putRecordResult = kinesis.putRecord(putRecordRequest);
+					System.out.printf("Successfully put record, partition key : %s, ShardID : %s, SequenceNumber : %s.\n",
+							putRecordRequest.getPartitionKey(),
+							putRecordResult.getShardId(),
+							putRecordResult.getSequenceNumber());
+
+					// then send message to cache queue
+					System.out.println("Sending messages to next queue.");
+					sqs.sendMessage(new SendMessageRequest(nextQueue, message.getBody()));
+
+					// delete message after sending to persist queue
+					System.out.println("Deleting message from this queue.\n");
+					String messageRecieptHandle = message.getReceiptHandle();
+					sqs.deleteMessage(new DeleteMessageRequest(thisQueue, messageRecieptHandle));
 				}
-				System.out.println();
-		        
-		        // Write record to the stream
-	            long createTime = System.currentTimeMillis();
-	            PutRecordRequest putRecordRequest = new PutRecordRequest();
-	            putRecordRequest.setStreamName(myStreamName);
-	            putRecordRequest.setData(ByteBuffer.wrap(String.format(message.getBody(), createTime).getBytes()));
-	            putRecordRequest.setPartitionKey(String.format("partitionKey-%d", createTime));
-	            PutRecordResult putRecordResult = kinesis.putRecord(putRecordRequest);
-	            System.out.printf("Successfully put record, partition key : %s, ShardID : %s, SequenceNumber : %s.\n",
-	                    putRecordRequest.getPartitionKey(),
-	                    putRecordResult.getShardId(),
-	                    putRecordResult.getSequenceNumber());
-
-				// then send message to cache queue
-				System.out.println("Sending messages to next queue.");
-				sqs.sendMessage(new SendMessageRequest(nextQueue, message.getBody()));
-
-				// delete message after sending to persist queue
-				System.out.println("Deleting message from this queue.\n");
-				String messageRecieptHandle = message.getReceiptHandle();
-				sqs.deleteMessage(new DeleteMessageRequest(thisQueue, messageRecieptHandle));
 			}
-
 		} catch (AmazonServiceException ase) {
 			System.out.println("Caught an AmazonServiceException, which means your request made it " +
 					"to Amazon SQS, but was rejected with an error response for some reason.");
@@ -243,37 +158,4 @@ public class sqsAlertStream {
 			System.out.println("Error Message: " + ace.getMessage());
 		}
 	}
-	
-	
-	private static void waitForStreamToBecomeAvailable(String myStreamName) throws InterruptedException {
-        System.out.printf("Waiting for %s to become ACTIVE...\n", myStreamName);
-
-        long startTime = System.currentTimeMillis();
-        long endTime = startTime + TimeUnit.MINUTES.toMillis(10);
-        while (System.currentTimeMillis() < endTime) {
-            Thread.sleep(TimeUnit.SECONDS.toMillis(20));
-
-            try {
-                DescribeStreamRequest describeStreamRequest = new DescribeStreamRequest();
-                describeStreamRequest.setStreamName(myStreamName);
-                // ask for no more than 10 shards at a time -- this is an optional parameter
-                describeStreamRequest.setLimit(10);
-                DescribeStreamResult describeStreamResponse = kinesis.describeStream(describeStreamRequest);
-
-                String streamStatus = describeStreamResponse.getStreamDescription().getStreamStatus();
-                System.out.printf("\t- current state: %s\n", streamStatus);
-                if ("ACTIVE".equals(streamStatus)) {
-                    return;
-                }
-            } catch (ResourceNotFoundException ex) {
-                // ResourceNotFound means the stream doesn't exist yet,
-                // so ignore this error and just keep polling.
-            } catch (AmazonServiceException ase) {
-                throw ase;
-            }
-        }
-
-        throw new RuntimeException(String.format("Stream %s never became active", myStreamName));
-    }
-
 }

@@ -16,7 +16,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.TimeUnit;
 import java.util.Random;
+
+import org.apache.commons.codec.binary.Base64;
 
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.AmazonServiceException;
@@ -36,6 +39,14 @@ import com.amazonaws.services.dynamodbv2.model.PutItemResult;
 import com.amazonaws.services.dynamodbv2.model.ScalarAttributeType;
 import com.amazonaws.services.dynamodbv2.model.TableDescription;
 import com.amazonaws.services.dynamodbv2.util.Tables;
+import com.amazonaws.services.kinesis.AmazonKinesisClient;
+import com.amazonaws.services.kinesis.model.CreateStreamRequest;
+import com.amazonaws.services.kinesis.model.DescribeStreamRequest;
+import com.amazonaws.services.kinesis.model.DescribeStreamResult;
+import com.amazonaws.services.kinesis.model.ListStreamsRequest;
+import com.amazonaws.services.kinesis.model.ListStreamsResult;
+import com.amazonaws.services.kinesis.model.ResourceNotFoundException;
+import com.amazonaws.services.kinesis.model.StreamDescription;
 import com.amazonaws.services.sqs.AmazonSQS;
 import com.amazonaws.services.sqs.AmazonSQSClient;
 import com.amazonaws.services.sqs.model.DeleteMessageRequest;
@@ -60,26 +71,6 @@ import com.amazonaws.services.sqs.model.SendMessageRequest;
  */
 public class whgHelper {
 
-	public static Map<String, AttributeValue> newAlert(String alertMessageBody) {
-		Map<String, AttributeValue> alert = new HashMap<String, AttributeValue>();
-		// parse JSON in message body
-		
-		System.out.println("sourceID: " + String.valueOf(System.currentTimeMillis()));
-		System.out.println("something: adt" + String.valueOf(System.currentTimeMillis()));
-		System.out.println("alertmessagebody: " + alertMessageBody);		
-
-		Random rn = new Random();
-		int source = rn.nextInt(10) + 1;
-		
-		alert.put("alertId", new AttributeValue(String.valueOf(System.currentTimeMillis())));
-		alert.put("alertSourceId", new AttributeValue(String.valueOf(source)));
-		alert.put("alertDateTime", new AttributeValue("adt" + String.valueOf(System.currentTimeMillis())));
-		alert.put("alertMessageBody", new AttributeValue(alertMessageBody));
-		alert.put("alertPersistedDateTime", new AttributeValue().withN(Double.toString(System.currentTimeMillis())));
-		return alert;
-	}
-	
-
 	public static AWSCredentials getCred(String user) {
 		/*
 		 * The ProfileCredentialsProvider will return your [user]
@@ -89,7 +80,7 @@ public class whgHelper {
 		AWSCredentials credentials = null;
 		try {
 			credentials = new ProfileCredentialsProvider(user).getCredentials();
-			
+
 		} catch (Exception e) {
 			throw new AmazonClientException(
 					"Cannot load the credentials from the credential profiles file. " +
@@ -99,20 +90,20 @@ public class whgHelper {
 		}
 		return credentials;
 	}
-	
+
 	public static AmazonSQS setQueueAccess(AWSCredentials credentials) {
-	
+
 		// setup access with SQS, set region
 		AmazonSQS sqs = new AmazonSQSClient(credentials);
 		Region usEast1 = Region.getRegion(Regions.US_EAST_1);
 		sqs.setRegion(usEast1);
 		return sqs;
-	
+
 	}
-	
-	
+
+
 	public static void setTable(AmazonDynamoDBClient dynamoDB, String tableName) {
-		
+
 		// Create table if it does not exist yet
 		if (Tables.doesTableExist(dynamoDB, tableName)) {
 			System.out.println("Table " + tableName + " is already ACTIVE");
@@ -129,27 +120,150 @@ public class whgHelper {
 			System.out.println("Waiting for " + tableName + " to become ACTIVE...");
 			Tables.waitForTableToBecomeActive(dynamoDB, tableName);
 		}
-		
+		return;
+	}
+
+	
+	public static Map<String, AttributeValue> newAlert(String alertMessageBody) {
+		Map<String, AttributeValue> alert = new HashMap<String, AttributeValue>();
+
+		// parse JSON in message body
+		System.out.println("");
+		System.out.println("Alert Attributes: " + String.valueOf(System.currentTimeMillis()));
+		System.out.println("   sourceID: " + String.valueOf(System.currentTimeMillis()));
+		System.out.println("   something: adt" + String.valueOf(System.currentTimeMillis()));
+		System.out.println("   alertmessagebody: " + alertMessageBody);		
+
+		Random rn = new Random();
+		int source = rn.nextInt(10) + 1;
+
+		alert.put("alertId", new AttributeValue(String.valueOf(System.currentTimeMillis())));
+		alert.put("alertSourceId", new AttributeValue(String.valueOf(source)));
+		alert.put("alertDateTime", new AttributeValue("adt" + String.valueOf(System.currentTimeMillis())));
+		alert.put("alertMessageBody", new AttributeValue(alertMessageBody));
+		alert.put("alertPersistedDateTime", new AttributeValue().withN(Double.toString(System.currentTimeMillis())));
+		return alert;
 	}
 	
-	public static List<Message> getMessagesFromQueue(String thisQueue, AmazonSQS sqs) {
+
+	public static void setStream(AmazonKinesisClient kinesis, String streamName, int shardCount) {
 		
+		try {
+			// Describe the stream and check if it exists
+			DescribeStreamRequest describeStreamRequest = new DescribeStreamRequest().withStreamName(streamName);
+			StreamDescription streamDescription = kinesis.describeStream(describeStreamRequest).getStreamDescription();
+			System.out.printf("Stream %s has a status of %s.\n", streamName, streamDescription.getStreamStatus());
+
+			if ("DELETING".equals(streamDescription.getStreamStatus())) {
+				System.out.println("Stream is being deleted. This sample will now exit.");
+				System.exit(0);
+			}
+
+			// Wait for the stream to become active if it is not yet ACTIVE.
+			if (!"ACTIVE".equals(streamDescription.getStreamStatus())) {
+				try {
+					waitForStreamToBecomeAvailable(kinesis, streamName);
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+		} catch (ResourceNotFoundException ex) {
+			
+			System.out.printf("Stream %s does not exist. Creating it now.\n", streamName);
+			// Create a stream. The number of shards determines the provisioned throughput.
+			CreateStreamRequest createStreamRequest = new CreateStreamRequest();
+			createStreamRequest.setStreamName(streamName);
+			createStreamRequest.setShardCount(shardCount);
+			kinesis.createStream(createStreamRequest);
+			// The stream is now being created. Wait for it to become active.
+			try {
+				waitForStreamToBecomeAvailable(kinesis, streamName);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+	}
+
+
+	private static void waitForStreamToBecomeAvailable(AmazonKinesisClient kinesis, String myStreamName) 
+			throws InterruptedException {
+
+		System.out.printf("Waiting for %s to become ACTIVE...\n", myStreamName);
+
+		long startTime = System.currentTimeMillis();
+		long endTime = startTime + TimeUnit.MINUTES.toMillis(10);
+		while (System.currentTimeMillis() < endTime) {
+			Thread.sleep(TimeUnit.SECONDS.toMillis(20));
+
+			try {
+				DescribeStreamRequest describeStreamRequest = new DescribeStreamRequest();
+				describeStreamRequest.setStreamName(myStreamName);
+				// ask for no more than 10 shards at a time -- this is an optional parameter
+				describeStreamRequest.setLimit(10);
+				DescribeStreamResult describeStreamResponse = kinesis.describeStream(describeStreamRequest);
+
+				String streamStatus = describeStreamResponse.getStreamDescription().getStreamStatus();
+				System.out.printf("\t- current state: %s\n", streamStatus);
+				if ("ACTIVE".equals(streamStatus)) {
+					return;
+				}
+			} catch (ResourceNotFoundException ex) {
+				// ResourceNotFound means the stream doesn't exist yet,
+				// so ignore this error and just keep polling.
+			} catch (AmazonServiceException ase) {
+				throw ase;
+			}
+		}
+
+		throw new RuntimeException(String.format("Stream %s never became active", myStreamName));
+	}
+	
+
+	public static List<String> getStreams(AmazonKinesisClient kinesis) {
+
+		// List all of my streams.
+		ListStreamsRequest listStreamsRequest = new ListStreamsRequest();
+		listStreamsRequest.setLimit(10);
+		ListStreamsResult listStreamsResult = kinesis.listStreams(listStreamsRequest);
+		List<String> streamNames = listStreamsResult.getStreamNames();
+		while (listStreamsResult.isHasMoreStreams()) {
+			if (streamNames.size() > 0) {
+				listStreamsRequest.setExclusiveStartStreamName(streamNames.get(streamNames.size() - 1));
+			}
+
+			listStreamsResult = kinesis.listStreams(listStreamsRequest);
+			streamNames.addAll(listStreamsResult.getStreamNames());
+		}
+		// Print all of my streams.
+		System.out.println("Helper: List of my streams: ");
+		for (int i = 0; i < streamNames.size(); i++) {
+			System.out.println("\t- " + streamNames.get(i));
+		}
+		return streamNames;
+
+	}
+
+
+	public static List<Message> getMessagesFromQueue(String thisQueue, AmazonSQS sqs) {
+
 		// get messages from provided queue
-		System.out.println("Receiving messages from " + thisQueue + ".");
+		System.out.println("Helper: receiving messages from " + thisQueue + ".");
 		ReceiveMessageRequest receiveMessageRequest = new ReceiveMessageRequest(thisQueue);
 		List<Message> messages = sqs.receiveMessage(receiveMessageRequest).getMessages();
 		return messages;
 
 	}
-	
+
 	public static void deleteMessageFromQueue(Message message, String thisQueue, AmazonSQS sqs) {
 
 		// delete message from provided queue
-		System.out.println("Deleting message.\n");
+		System.out.println("Helper: deleting message with body: " + message.getBody() + "\n");
 		String messageRecieptHandle = message.getReceiptHandle();
 		sqs.deleteMessage(new DeleteMessageRequest(thisQueue, messageRecieptHandle));
-		
+
 	}
-	
+
 
 }
