@@ -16,10 +16,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.concurrent.TimeUnit;
 import java.util.Random;
-
-import org.apache.commons.codec.binary.Base64;
+import java.util.concurrent.TimeUnit;
 
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.AmazonServiceException;
@@ -34,8 +32,6 @@ import com.amazonaws.services.dynamodbv2.model.CreateTableRequest;
 import com.amazonaws.services.dynamodbv2.model.KeySchemaElement;
 import com.amazonaws.services.dynamodbv2.model.KeyType;
 import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughput;
-import com.amazonaws.services.dynamodbv2.model.PutItemRequest;
-import com.amazonaws.services.dynamodbv2.model.PutItemResult;
 import com.amazonaws.services.dynamodbv2.model.ScalarAttributeType;
 import com.amazonaws.services.dynamodbv2.model.TableDescription;
 import com.amazonaws.services.dynamodbv2.util.Tables;
@@ -52,7 +48,6 @@ import com.amazonaws.services.sqs.AmazonSQSClient;
 import com.amazonaws.services.sqs.model.DeleteMessageRequest;
 import com.amazonaws.services.sqs.model.Message;
 import com.amazonaws.services.sqs.model.ReceiveMessageRequest;
-import com.amazonaws.services.sqs.model.SendMessageRequest;
 
 /**
  * This sample demonstrates how to make basic requests to Amazon SQS using the
@@ -90,6 +85,7 @@ public class whgHelper {
 		}
 		return credentials;
 	}
+	
 
 	public static AmazonSQS setQueueAccess(AWSCredentials credentials) {
 
@@ -255,6 +251,7 @@ public class whgHelper {
 		return messages;
 
 	}
+	
 
 	public static void deleteMessageFromQueue(Message message, String thisQueue, AmazonSQS sqs) {
 
@@ -264,6 +261,39 @@ public class whgHelper {
 		sqs.deleteMessage(new DeleteMessageRequest(thisQueue, messageRecieptHandle));
 
 	}
+	
+	
+	public static void errorMessagesAse (AmazonServiceException ase) {
+		System.out.println("Caught an AmazonServiceException, which means your request made it " +
+				"to Amazon SQS, but was rejected with an error response for some reason.");
+		System.out.println("Error Message:    " + ase.getMessage());
+		System.out.println("HTTP Status Code: " + ase.getStatusCode());
+		System.out.println("AWS Error Code:   " + ase.getErrorCode());
+		System.out.println("Error Type:       " + ase.getErrorType());
+		System.out.println("Request ID:       " + ase.getRequestId());
+	}
 
+	
+	public static void errorMessagesAce (AmazonClientException ace) {
+		System.out.println("Caught an AmazonClientException, which means the client encountered " +
+				"a serious internal problem while trying to communicate with SQS, such as not " +
+				"being able to access the network.");
+		System.out.println("Error Message: " + ace.getMessage());
+	}
+	
+	public static void printMessage (Message message) {
+		System.out.println("  Message");
+		System.out.println("    MessageId:     " + message.getMessageId());
+		System.out.println("    ReceiptHandle: " + message.getReceiptHandle());
+		System.out.println("    MD5OfBody:     " + message.getMD5OfBody());
+		System.out.println("    Body:          " + message.getBody());
+		System.out.println();
+	}
 
+	public static void printMessageEntry (Entry<String, String> entry) {
+		System.out.println("  Attribute");
+		System.out.println("    Name:  " + entry.getKey());
+		System.out.println("    Value: " + entry.getValue());
+		System.out.println();
+	}
 }
